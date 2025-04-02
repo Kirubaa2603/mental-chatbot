@@ -1,142 +1,98 @@
-import os
 import streamlit as st
-from langchain.embeddings import HuggingFaceBgeEmbeddings
-from langchain.document_loaders import PyPDFLoader, DirectoryLoader
-from langchain import vectorstores
+import openai
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_groq import ChatGroq
-import datetime
-import random
+from langchain.vectorstores import FAISS  # Using FAISS instead of Hugging Face
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.llms import OpenAI
+
+# Set up OpenAI API key (Replace 'your-api-key' with an actual key)
+openai.api_key = "your-api-key"
 
 def initialize_llm():
-    return ChatGroq(
-        temperature=0,
-        groq_api_key="YOUR_GROQ_API_KEY",
-        model_name="llama-3.3-70b-versatile"
-    )
+    return OpenAI(temperature=0.7)
 
 def create_vector_db():
-    os.makedirs('datas/', exist_ok=True)
-    loader = DirectoryLoader('datas/', glob='*.pdf', loader_cls=PyPDFLoader)
-    documents = loader.load()
-    if not documents:
-        return None
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    texts = text_splitter.split_documents(documents)
-    embeddings = HuggingFaceBgeEmbeddings(model_name='all-mpnet-base-v2')
-    vector_db = vectorstores.Chroma.from_documents(texts, embeddings, persist_directory='./chroma_db')
-    vector_db.persist()
+    # Using FAISS as an alternative to Hugging Face embeddings
+    sample_texts = ["MindEase is here to help you.", "Take deep breaths and relax."]
+    embeddings = OpenAIEmbeddings()
+    vector_db = FAISS.from_texts(sample_texts, embeddings)
     return vector_db
 
 def setup_qa_chain(vector_db, llm):
     retriever = vector_db.as_retriever()
-    prompt_templates = """You are a compassionate mental health chatbot. Respond thoughtfully:
+    prompt_templates = """
+    You are a compassionate mental health chatbot. Respond thoughtfully:
     {context}
-    user: {question}
-    chatbot: """
-    PROMPT = PromptTemplate(template=prompt_templates, input_variables=['context', 'question'])
-    return RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever, chain_type_kwargs={"prompt": PROMPT})
+    User: {question}
+    Chatbot:
+    """
+    PROMPT = PromptTemplate(template=prompt_templates, input_variables=["context", "question"])
+    return RetrievalQA.from_chain_type(llm=llm, retriever=retriever, chain_type_kwargs={"prompt": PROMPT})
 
+# Initialize Components
+st.set_page_config(page_title="MindEase", layout="wide")
 llm = initialize_llm()
-db_path = "./chroma_db"
-vector_db = vectorstores.Chroma(persist_directory=db_path, embedding_function=HuggingFaceBgeEmbeddings(model_name='all-mpnet-base-v2'))
+vector_db = create_vector_db()
 qa_chain = setup_qa_chain(vector_db, llm)
 
-# Sidebar UI - MindEase Tools
-st.sidebar.title("🌿 MindEase Tools")
+# Sidebar - MindEase Tools
+st.sidebar.title("🧘 MindEase Tools")
+option = st.sidebar.radio("Choose a tool:", ["💪 Motivation", "📚 Study Tips", "💖 Self-Care"])
 
-# Motivation
-with st.sidebar.expander("💪 Motivation"):
-    if st.button("Need a Boost? Inspire Me!"):
-        motivation_quotes = [
-            "Believe in yourself! You are capable of great things.",
-            "Every day is a fresh start. Make it count!",
-            "You are stronger than you think.",
-            "Success is the sum of small efforts, repeated daily.",
-        ]
-        st.success(random.choice(motivation_quotes))
-    if st.button("Feeling Anxious? Anxiety Relief"):
-        anxiety_tips = [
-            "Take deep breaths and count to ten.",
-            "Ground yourself – focus on 5 things you see, 4 you touch, 3 you hear.",
-            "Stretch or do light movement to release tension.",
-        ]
-        st.info(random.choice(anxiety_tips))
+if option == "💪 Motivation":
+    st.sidebar.write("Need a boost?")
+    if st.sidebar.button("✨ Inspire Me!"):
+        st.sidebar.success("Believe in yourself! Every step forward is progress.")
+    st.sidebar.write("Feeling anxious?")
+    if st.sidebar.button("🧘 Anxiety Relief"):
+        st.sidebar.success("Take slow, deep breaths. Focus on the present.")
 
-# Study Tips
-with st.sidebar.expander("📚 Study Tips"):
-    if st.button("Get Study Techniques"):
-        study_tips = [
-            "Try the Feynman Technique: Explain the topic in simple words.",
-            "Use Pomodoro technique: 25 min study, 5 min break.",
-            "Practice active recall: Test yourself instead of re-reading.",
-        ]
-        st.info(random.choice(study_tips))
+elif option == "📚 Study Tips":
+    if st.sidebar.button("📖 Get Study Tips"):
+        st.sidebar.success("Try the Feynman Technique: Explain concepts in simple terms!")
 
-# Self-Care
-with st.sidebar.expander("🌸 Self-Care"):
-    if st.button("Academic Well-Being Tips"):
-        self_care_tips = [
-            "Your shoulders might be tense. Take a deep breath and relax.",
-            "Hydration is key! Take a sip of water now.",
-            "Take a moment to stretch. Your body will thank you!",
-        ]
-        st.warning(random.choice(self_care_tips))
+elif option == "💖 Self-Care":
+    if st.sidebar.button("🛀 Self-Care Reminder"):
+        st.sidebar.success("Your shoulders might be tense. Take a stretch break!")
 
-# Main Page UI
-st.title("MindEase - Your AI Study & Mental Wellness Companion 💙")
+# Main Section
+st.title("MindEase: Your Mental Wellness Companion")
 
-# Emotion-Based Response
-st.subheader("🧠 How do you feel today?")
-selected_emotion = st.selectbox("Select your emotion:", ["Happy", "Sad", "Anxious", "Motivated", "Stressed", "Confident"])
-response_dict = {
-    "Happy": "Keep shining! Happiness is contagious.",
-    "Sad": "You're stronger than you think. Keep going!",
-    "Anxious": "Breathe in... Breathe out... You got this!",
-    "Motivated": "Channel your motivation into action!",
-    "Stressed": "Take it one step at a time. You've got this!",
-    "Confident": "Confidence looks good on you! Keep moving forward!",
-}
-st.write(response_dict[selected_emotion])
+# Dropdown - Emotion Selection
+emotion = st.selectbox("How do you feel today?", ["😊 Happy", "😢 Sad", "😠 Frustrated", "😌 Calm"])
+if emotion == "😊 Happy":
+    st.success("That's great! Keep spreading positivity! ✨")
+elif emotion == "😢 Sad":
+    st.warning("It's okay to feel sad sometimes. You're not alone. 💜")
+elif emotion == "😠 Frustrated":
+    st.info("Take a deep breath. Let's find a way to ease your frustration.")
+elif emotion == "😌 Calm":
+    st.success("Enjoy the peace! 🌿")
 
-# Chatbot
-st.subheader("🗨️ I am all ears!")
-chat_input = st.text_input("Type your message...")
-if chat_input:
-    chat_response = qa_chain.run(chat_input)
-    st.write(f"**MindEase:** {chat_response}")
+# Chatbox - Interactive Conversations
+st.subheader("I am all ears 👂")
+user_input = st.text_input("Talk to me:")
+if user_input:
+    response = qa_chain.run(user_input)
+    st.write(response)
 
 # Study Planner Generator
 st.subheader("📅 Study Planner Generator")
-num_subjects = st.selectbox("Number of subjects:", [1, 2, 3, 4, 5])
-planner = {}
+num_subjects = st.number_input("How many subjects?", min_value=1, max_value=10, step=1)
 for i in range(num_subjects):
-    subject = st.text_input(f"Subject {i+1}")
-    lessons = st.number_input(f"Number of lessons in {subject}", min_value=1, step=1)
-    planner[subject] = lessons
-study_duration = st.number_input("Total study duration (hours):", min_value=1, step=1)
+    st.text_input(f"Subject {i+1}")
+    st.number_input(f"Lessons in Subject {i+1}", min_value=1, step=1)
+    st.number_input(f"Time Duration (hrs) for Subject {i+1}", min_value=1, step=1)
 if st.button("Generate Study Plan"):
-    st.success("Here's your study plan!")
-    for subject, lessons in planner.items():
-        st.write(f"📖 {subject}: {study_duration / lessons:.2f} hours per lesson")
+    st.success("Here’s your study plan! 🎯 Stay consistent!")
 
-# Daily Affirmation
-st.subheader("🌞 Daily Affirmation")
-today = datetime.date.today()
-daily_quotes = [
-    "You are enough, just as you are.",
-    "Every step forward is progress, no matter how small.",
-    "You deserve success and happiness.",
-]
-st.write(f"📅 {today}: {random.choice(daily_quotes)}")
+# Daily Affirmations
+st.subheader("🌟 Daily Affirmation")
+st.write("You are capable of amazing things. Believe in yourself! 💪")
 
 # Study Timer
 st.subheader("⏳ Study Timer")
-study_time = st.number_input("Set study duration (minutes):", min_value=1, step=1)
-break_time = st.selectbox("Break duration:", [5, 10])
-if st.button("Start Timer"):
-    st.success(f"Study for {study_time} minutes, then take a {break_time}-minute break!")
-
-st.write("💡 MindEase is here to support you through every step of your journey!")
+time_duration = st.slider("Set Study Duration (minutes)", 10, 120, 30)
+break_duration = st.radio("Break Time?", ["5 min", "10 min"])
+st.success(f"Focus for {time_duration} minutes, then take a {break_duration} break!")
